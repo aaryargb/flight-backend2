@@ -1,71 +1,58 @@
 from flask import Flask, request, jsonify
-from services.flight_service import search_flights, sort_by_departure
-from utils.validator import validate_airport
+from flask_cors import CORS
+import requests
 
 app = Flask(__name__)
+CORS(app)
+
+API_KEY = "1429a31d187da7dbdd146e1750867b0a"
 
 
 @app.route("/")
 def home():
-    return "✈ Flight Comparison Backend Running"
+    return "Flight Backend Running"
 
 
-# ONE WAY SEARCH
 @app.route("/flights")
 def flights():
 
     dep = request.args.get("dep", "").upper()
     arr = request.args.get("arr", "").upper()
 
-    if not validate_airport(dep) or not validate_airport(arr):
-        return jsonify({
-            "error": "Invalid airport code"
-        }), 400
+    if len(dep) != 3 or len(arr) != 3:
+        return jsonify({"error": "Invalid airport code"}), 400
+
+    url = "http://api.aviationstack.com/v1/flights"
+
+    params = {
+        "access_key": API_KEY,
+        "dep_iata": dep,
+        "arr_iata": arr
+    }
 
     try:
-        flights = search_flights(dep, arr)
+        res = requests.get(url, params=params)
+        data = res.json()
 
-        if not flights:
-            return jsonify({
-                "message": "No flights found"
-            }), 404
+        results = []
 
-        flights = sort_by_departure(flights)
+        for f in data.get("data", [])[:10]:
+            results.append({
+                "airline": f["airline"]["name"],
+                "flight_number": f["flight"]["iata"],
+                "departure_airport": f["departure"]["airport"],
+                "arrival_airport": f["arrival"]["airport"],
+                "departure_time": f["departure"]["scheduled"],
+                "arrival_time": f["arrival"]["scheduled"],
+                "status": f["flight_status"],
+                "booking_link": "https://www.google.com/travel/flights"
+            })
 
-        return jsonify(flights)
-
-    except Exception as e:
-        return jsonify({
-            "error": str(e)
-        }), 500
-
-
-# ROUND TRIP SEARCH ⭐
-@app.route("/roundtrip")
-def roundtrip():
-
-    dep = request.args.get("dep", "").upper()
-    arr = request.args.get("arr", "").upper()
-
-    if not validate_airport(dep) or not validate_airport(arr):
-        return jsonify({
-            "error": "Invalid airport code"
-        }), 400
-
-    try:
-        onward = search_flights(dep, arr)
-        return_back = search_flights(arr, dep)
-
-        return jsonify({
-            "onward": onward,
-            "return": return_back
-        })
+        return jsonify(results)
 
     except Exception as e:
-        return jsonify({
-            "error": str(e)
-        }), 500
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run()
